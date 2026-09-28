@@ -356,6 +356,12 @@ fi
 git checkout -b "$BRANCH"
 ```
 
+Sync PRs created by `/update` must preserve upstream ancestry. Merge the PR
+with a true merge commit (`--merge`), through `/approve-merge` or the
+equivalent host command. Do not squash or rebase an update sync PR. The merge
+skill detects the `chore/(#<TICKET>-)?sync-upstream-*` branch convention and
+selects the ancestry-preserving strategy automatically.
+
 ### 6. Do the sync
 
 `$UPSTREAM_REF` was set in the pre-step (`upstream/main` by default, `upstream/dev` under `--from-dev`).
@@ -1097,3 +1103,17 @@ Always remove the bootstrap marker on a clean exit (after the sync branch is rea
 ---
 
 *Part of [ApexYard](https://github.com/me2resh/apexyard) — multi-project SDLC framework for Claude Code · MIT.*
+
+### Portfolio harness adapter reconciliation
+
+After framework files and migrations are complete, reconcile declared adapters
+for registered projects. This is explicit and registry-driven; projects with
+no `adapters` field are left unchanged.
+
+```bash
+bash bin/manage-portfolio-adapters.sh --install
+```
+
+For a read-only governance report, use `--check`. A missing workspace,
+unsupported adapter, or stale generated adapter exits non-zero and is reported
+as structured drift.
