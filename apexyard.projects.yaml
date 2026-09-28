@@ -1,0 +1,29 @@
+# =============================================================================
+# ApexYard Portfolio Registry
+# =============================================================================
+version: 1
+
+projects:
+  - name: theAunties
+    repo: baratsamara/theAunties
+    workspace: workspace/theAunties
+    docs: projects/theAunties
+    status: active
+    tier: P0
+    roles:
+      - tech-lead
+      - frontend-engineer
+      - backend-engineer
+      - qa-engineer
+    tags:
+      - customer-facing
+      - revenue
+    ticket_prefix: ""
+
+# ----------------------------------------------------------------------------
+# Defaults
+# ----------------------------------------------------------------------------
+defaults:
+  status: active
+  tier: P1
+  ticket_prefix: ""
