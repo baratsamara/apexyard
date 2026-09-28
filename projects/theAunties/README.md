@@ -19,7 +19,7 @@ A website for The Aunties community — connecting people.
 
 - Language: TypeScript
 - Framework: Next.js (App Router)
-- Hosting: Vercel
+- Hosting: Static export (any static host)
 - CI/CD: GitHub Actions
 
 ## Key links

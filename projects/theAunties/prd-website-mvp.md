@@ -11,7 +11,7 @@
 
 ## Summary
 
-Build and launch a Next.js website for The Aunties community. The site will serve as a simple hub introducing the community, hosting a directory of aunties, and providing a contact method. Deploys on Vercel with a Next.js App Router stack. First release is a static-first site with no backend auth or database — future phases add member features.
+Build and launch a Next.js website for The Aunties community. The site will serve as a simple hub introducing the community, hosting a directory of aunties, and providing a contact method. The site is a static export (Next.js `next export`) deployable to any static host. First release is a static-first site with no backend auth or database — future phases add member features.
 
 ---
 
@@ -45,7 +45,7 @@ The Aunties community needs a web presence. Currently there is no central place 
 |--------|--------|--------------|
 | Site launched | 1.0 | Manual |
 | Performance (Lighthouse) | >= 90 | Lighthouse CI |
-| Visitors (week 1) | >= 50 | Vercel Analytics |
+| Visitors (week 1) | >= 50 | Static host analytics |
 
 ---
 
@@ -104,7 +104,8 @@ The Aunties community needs a web presence. Currently there is no central place 
 |----------|-------------|--------|
 | Performance | Page load time | < 2 seconds |
 | Accessibility | WCAG compliance | Level AA |
-| Hosting | Deploy target | Vercel |
+| Hosting | Static export | Any static host |
+| Analytics | Visitors | Plain analytics or skip |
 
 ---
 
@@ -114,9 +115,8 @@ The Aunties community needs a web presence. Currently there is no central place 
 
 | Dependency | Type | Status | Owner |
 |------------|------|--------|-------|
-| Next.js 15 | Internal/framework | Ready | @baratsamara |
-| Tailwind CSS | Internal/styling | Ready | @baratsamara |
-| Vercel | External/hosting | Ready | @baratsamara |
+|| Next.js 15 | Internal/framework | Ready | @baratsamara |
+|| Tailwind CSS | Internal/styling | Ready | @baratsamara ||
 
 ### Technical Constraints
 
