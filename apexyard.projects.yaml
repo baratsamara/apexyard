@@ -19,6 +19,17 @@ projects:
       - customer-facing
       - revenue
     ticket_prefix: ""
+  - name: alfdocument
+    repo: baratsamara/alfdocument
+    workspace: workspace/alfdocument
+    docs: projects/alfdocument
+    status: handover
+    tier: P1
+    roles:
+      - tech-lead
+    tags:
+      - sandbox
+    ticket_prefix: ""
 
 # ----------------------------------------------------------------------------
 # Defaults
