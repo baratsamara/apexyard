@@ -292,3 +292,34 @@ test("deriveGatesFromSettings, run against this repo's real .claude/settings.jso
     assert.ok(globs.includes(expected), `expected glob "${expected}" to be wired for block-unreviewed-merge`);
   }
 });
+
+// ---------------------------------------------------------------------
+// opencode 2.x reports the bash tool as "shell" (verified live, Nov 2026).
+// Every Bash wire must exist for BOTH ids, or 2.x silently fail-opens.
+// ---------------------------------------------------------------------
+
+test("deriveGatesFromSettings wires every Bash gate to both bash and shell tool ids", () => {
+  const gates = deriveGatesFromSettings(fixtureSettings());
+  const mergeGate = gates.find((g) => g.name === "block-unreviewed-merge")!;
+  const bashGlobs = mergeGate.wires.filter((w) => w.tool === "bash").map((w) => w.commandGlob).sort();
+  const shellGlobs = mergeGate.wires.filter((w) => w.tool === "shell").map((w) => w.commandGlob).sort();
+  assert.deepEqual(bashGlobs, ["gh api *", "gh pr merge *"]);
+  assert.deepEqual(shellGlobs, bashGlobs, "shell wires must mirror bash wires exactly");
+});
+
+test("gateMatchesToolCall matches a Bash gate for both tool ids", () => {
+  const gates = deriveGatesFromSettings(fixtureSettings());
+  const mergeGate = gates.find((g) => g.name === "block-unreviewed-merge")!;
+  assert.ok(gateMatchesToolCall(mergeGate, "bash", "gh pr merge 1 --squash"));
+  assert.ok(gateMatchesToolCall(mergeGate, "shell", "gh pr merge 1 --squash"));
+  assert.ok(!gateMatchesToolCall(mergeGate, "shell", "echo hello"));
+});
+
+test("buildToolInput accepts the 2.x shell tool id like bash", () => {
+  assert.deepEqual(buildToolInput("shell", { command: "gh pr merge 1" }), { command: "gh pr merge 1" });
+  assert.equal(buildToolInput("shell", { command: "" }), undefined);
+});
+
+test("claudeToolNameFor maps shell back to Bash for hook stdin", () => {
+  assert.equal(claudeToolNameFor("shell"), "Bash");
+});

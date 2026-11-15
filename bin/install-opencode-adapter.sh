@@ -143,6 +143,31 @@ if ! grep -Eq 'from ["'"'"']\./derive-gates-core\.ts["'"'"']' "$DEST/derive-gate
   exit 1
 fi
 
+# V2 runtime dep (opencode 2.x): the adapter's default export calls
+# `Plugin.define` from `@opencode/plugin` at load time, so the installed
+# subdirectory needs its own package.json + node_modules for the import to
+# resolve (the V1 adapter only used `import type`, erased at load, and
+# needed nothing). Without this, the loader reports a module-resolution
+# failure instead of loading the plugin.
+PLUGIN_PKG_VERSION="$(node -p "require('$ROOT/harness-adapters/opencode/package.json').dependencies['@opencode/plugin']" 2>/dev/null || echo '^2.3.0')"
+cat > "$DEST/package.json" <<EOF
+{
+  "name": "apexyard-gate-dispatcher",
+  "version": "0.1.0",
+  "description": "apexyard opencode gate adapter (installed copy) — enforces apexyard governance gates via existing bash hooks.",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "dependencies": {
+    "@opencode/plugin": "$PLUGIN_PKG_VERSION"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
+EOF
+
 if [ "$(basename "$TARGET_DIR")" = "plugin" ]; then
   echo "WARNING: --target-dir ends in the singular 'plugin' — opencode's real, live-verified discovery dir is PLURAL ('plugins'). Continuing, but opencode will not find this install unless '$TARGET_DIR' is itself scanned." >&2
 fi
@@ -153,6 +178,7 @@ echo "  $DEST/gate-dispatcher.ts"
 echo "  $DEST/resolve-ops-root.ts"
 echo "  $DEST/derive-gates.ts"
 echo "  $DEST/derive-gates-core.ts"
+echo "  $DEST/package.json           <- V2 runtime dep (@opencode/plugin); run npm install inside $DEST"
 echo ""
-echo "Next: (cd \"$ROOT/harness-adapters/opencode\" && npm install)"
+echo "Next: (cd \"$DEST\" && npm install)"
 echo "Then run opencode from the project containing $TARGET_DIR — it auto-discovers $DEST/index.ts."

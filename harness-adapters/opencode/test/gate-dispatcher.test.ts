@@ -22,7 +22,9 @@ import test from "node:test";
 
 import {
   buildToolExecuteBeforeHook,
+  buildV2ExecuteBeforeHook,
   registerGateDispatcher,
+  resolveGatesForLocation,
   runGateHook,
   execGateHookReal,
   deriveGatesFromOpsRoot,
@@ -322,4 +324,52 @@ test("deriveGatesFromOpsRoot: a missing settings.json is silent (the expected \"
 
   assert.deepEqual(gates, []);
   assert.equal(combined, "", "a missing file is not a parse failure — warning here would be noise for every non-apexyard session");
+});
+
+// ---------------------------------------------------------------------
+// V2 (opencode 2.x) handler — single-event shape { tool, input }.
+// ---------------------------------------------------------------------
+
+test("V2 execute.before: a blocked bash call THROWS with the hook's reason", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const { exec } = mockExec({ [path]: { status: 2, stderr: "BLOCKED: fabricated for test\n" } });
+  const handler = buildV2ExecuteBeforeHook(process.cwd(), [gate("block-unreviewed-merge")], exec);
+
+  await assert.rejects(() => handler({ tool: "bash", input: { command: "gh pr merge 1 --squash" } }), /BLOCKED: fabricated for test/);
+});
+
+test("V2 execute.before: an allowed bash call resolves without throwing", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const { exec } = mockExec({ [path]: { status: 0, stderr: "" } });
+  const handler = buildV2ExecuteBeforeHook(process.cwd(), [gate("noop-allow")], exec);
+
+  await assert.doesNotReject(() => handler({ tool: "bash", input: { command: "echo hello" } }));
+});
+
+test("V2 execute.before: accepts the legacy { args } wrapper too (V1-output-shaped input)", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const { exec } = mockExec({ [path]: { status: 2, stderr: "BLOCKED via args wrapper\n" } });
+  const handler = buildV2ExecuteBeforeHook(process.cwd(), [gate("block-unreviewed-merge")], exec);
+
+  await assert.rejects(() => handler({ tool: "bash", input: { args: { command: "gh pr merge 1" } } }), /BLOCKED via args wrapper/);
+});
+
+test("V2 execute.before: edit/write filePath variants are forwarded as file_path", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const { exec, calls } = mockExec({ [path]: { status: 0, stderr: "" } });
+  const editGate: GateDefinition = { name: "ticket", hookRelativePath: THIS_FILE_AS_HOOK, wires: [{ tool: "edit", commandGlob: null }] };
+  const handler = buildV2ExecuteBeforeHook(process.cwd(), [editGate], exec);
+
+  await assert.doesNotReject(() => handler({ tool: "edit", input: { filePath: "/repo/src/foo.ts" } }));
+  assert.deepEqual(JSON.parse(calls[0]!.stdinPayload).tool_input, { file_path: "/repo/src/foo.ts" });
+});
+
+test("resolveGatesForLocation falls back to project.canonical when directory resolves to nothing", () => {  // process.cwd() here is harness-adapters/opencode, whose walk-up finds the
+  // real ops root (/home/bara/apexyard via .apexyard-fork) — the fallback
+  // path must use it even though `directory` has no anchor.
+  const { opsRoot } = resolveGatesForLocation(
+    { directory: "/nowhere/no-anchor-here", project: { canonical: process.cwd() } },
+    { gates: [gate("x")] },
+  );
+  assert.ok(opsRoot, "fallback to project.canonical must resolve the real ops root");
 });
