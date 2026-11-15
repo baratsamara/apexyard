@@ -116,6 +116,36 @@ done
 [ -f "$SHARED_CORE" ] || { echo "ERROR: expected shared-core file not found: $SHARED_CORE" >&2; exit 1; }
 
 DEST="$TARGET_DIR/$NAME"
+
+# Nested-install guard (opencode 2.x): the server registry keeps the FIRST
+# same-id plugin in boot order and reports later ones as
+# `failed: Duplicate plugin ID` — the extra copy never runs setup, and the
+# red row masks real failures. An ancestor install (e.g. the ops fork's own
+# `.opencode/plugins/apexyard/`, which covers every session under it)
+# already enforces these gates here, so installing a second copy under it
+# only buys the badge. Refuse to proceed into that trap; pass a different
+# --name if a genuinely separate instance is intended (note: same id in one
+# chain still collides — a separate instance needs its own Plugin.define id
+# AND doubles hook executions).
+_ancestor_check_dir="$(cd "$TARGET_DIR" 2>/dev/null && pwd || echo "$TARGET_DIR")"
+_ancestor_check_dir="${_ancestor_check_dir%/.opencode/plugins}"
+case "$DEST" in
+  /*) _dest_abs="$DEST" ;;
+  *) _dest_abs="$(pwd)/$DEST" ;;
+esac
+while [ -n "$_ancestor_check_dir" ] && [ "$_ancestor_check_dir" != / ]; do
+  if [ -f "$_ancestor_check_dir/.opencode/plugins/$NAME/index.ts" ] && [ "$_ancestor_check_dir/.opencode/plugins/$NAME" != "$_dest_abs" ]; then
+    echo "ERROR: an ancestor install already exists at $_ancestor_check_dir/.opencode/plugins/$NAME/" >&2
+    echo "       opencode loads ancestor plugin dirs too, and its registry reports the second" >&2
+    echo "       same-id copy as failed (Duplicate plugin ID) without running it. The ancestor" >&2
+    echo "       copy already enforces these gates for sessions under this directory — installing" >&2
+    echo "       here adds a permanent red row and no coverage. Aborting; use --name for a" >&2
+    echo "       genuinely separate instance (with its own plugin id)." >&2
+    exit 1
+  fi
+  _ancestor_check_dir="${_ancestor_check_dir%/*}"
+done
+
 rm -rf "$DEST"
 mkdir -p "$DEST"
 
