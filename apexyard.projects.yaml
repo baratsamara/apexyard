@@ -1,28 +1,33 @@
 # =============================================================================
 # ApexYard Portfolio Registry
 # =============================================================================
+#
+# This file registers every repo ApexYard manages.
+#
+
 version: 1
 
 projects:
-  - name: theAunties
-    repo: baratsamara/theAunties
-    workspace: workspace/theAunties
-    docs: projects/theAunties
+  - name: my-first-repo
+    repo: baratsamara/my-first-repo
+    workspace: workspace/my-first-repo
+    docs: projects/my-first-repo
     status: active
-    tier: P0
+    tier: P1
     roles:
       - tech-lead
       - frontend-engineer
       - backend-engineer
       - qa-engineer
     tags:
-      - customer-facing
-      - revenue
+      - sandbox
     ticket_prefix: ""
 
 # ----------------------------------------------------------------------------
 # Defaults
 # ----------------------------------------------------------------------------
+# Optional. Defaults applied to every project that doesn't override them.
+#
 defaults:
   status: active
   tier: P1
