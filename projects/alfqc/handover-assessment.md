@@ -14,6 +14,7 @@
 ## Current State
 
 ### Tech stack
+
 - Language: TypeScript (strict)
 - Runtime: Node.js (`tsx`, `vite`; `package.json` name `rest-express`)
 - Framework: React 18 + Vite (frontend) + Express 4 (backend API) + wouter + TanStack Query
@@ -24,15 +25,18 @@
 - CI: none (no `.github/` in `workspace/alfqc/alfQc`)
 
 ### Build status
+
 - `npm install`: not attempted in this handover (node_modules present at both container and repo levels)
 - `npm run build`: not attempted (`vite build && esbuild server/index.ts --bundle --format=esm --outdir=dist`)
 - `npm run test`: not attempted
 - `npm run check`: not attempted (`tsc`, excludes `**/*.test.ts`)
 
 ### Test coverage
+
 - Unknown (no coverage threshold in `package.json`, no coverage step — no CI)
 
 ### Repo activity
+
 - Commits in last 90 days: 280
 - Open issues: 0
 - Open PRs: 0 (PR #1 "Session persistence, PWA installability, mobile performance + phone UI fixes" merged 2026-11-25)
@@ -59,14 +63,17 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 ## Quality Risks
 
 ### Security
+
 - Auth surface (passport-local, sessions, PWA) with no security-reviewer baseline; open PR #1 touches session persistence — review before merge.
 - `.env` lives at container root (`workspace/alfqc/.env`, gitignored) plus `MIGRATION_PLAN.md` — verify no production secrets in dumps (`backup-*.sql`, `dump_*.sql` ~15–58 MB each, kept local only, must never be committed).
 - S3 + object-storage paths (`server/objectStorage.ts`) need a STRIDE pass once under governance.
 
 ### Dependencies
+
 - Large UI + export surface (`exceljs`, `jspdf`, `papaparse`, Radix) — no `/audit-deps` baseline yet.
 
 ### Technical debt
+
 - No lint baseline across 280 recent commits.
 - No coverage gate despite 29 test files.
 - `tsconfig.json` excludes `**/*.test.ts` from `tsc` — type errors in tests invisible to `npm run check`.
@@ -74,6 +81,7 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 - Container layout: repo lives at `workspace/alfqc/alfQc` (nested), with DB dumps (`*.sql*`, `*.dump`, `*.gz`), photo/export `out/` (~10G with manifests), `cranl_bucket/` tooling and `MIGRATION_PLAN.md` alongside it at `workspace/alfqc/` — intentional local-data quarantine, but registry previously pointed at the container instead of the git root (fixed 2026-11-24 → `workspace/alfqc/alfQc`).
 
 ### Operational
+
 - No CI — `staging` branch is active (local HEAD) with PR #1 open, but no automated gate.
 - Heavy local-only data (`out/`, dumps) — needs explicit backup/retention policy, not just "kept local".
 - `replit.md`, `design_guidelines.md`, `screenshots/`, `artifacts/` suggest a Replit origin — confirm the canonical dev loop is now local `npm run dev`, not Replit.
@@ -81,10 +89,12 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 ## Integration Plan
 
 ### Roles that apply
+
 - tech-lead, backend-engineer, frontend-engineer, qa-engineer (from registry; matches Express + React + 29-test surface)
 - Consider adding `platform-engineer` once CI lands, `security-auditor` for session/PWA + S3/object-storage PRs
 
 ### Workflows that kick in
+
 - [ ] PR workflow (`.claude/rules/pr-workflow.md`) — PR #1 is already the right shape; keep it
 - [ ] AgDR for technical decisions (first: CI + lint + coverage + lockfile choice)
 - [ ] Code Reviewer agent on every PR
@@ -92,6 +102,7 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 - [ ] `/audit-deps` on adoption and monthly thereafter
 
 ### Hooks to enable
+
 - [ ] `block-git-add-all` (critical here — `out/` + dumps must never be staged)
 - [ ] `block-main-push`
 - [ ] `validate-branch-name` (tracker currently unused — 0 open issues; decide tracker before enforcing)
@@ -100,6 +111,7 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 - [ ] `check-secrets`
 
 ### CI templates to copy in
+
 - [ ] `golden-paths/pipelines/ci.yml` (typecheck + build + `node --test`)
 - [ ] `golden-paths/pipelines/pr-title-check.yml` (once tracker is adopted)
 

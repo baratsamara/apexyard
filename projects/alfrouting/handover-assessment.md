@@ -14,6 +14,7 @@
 ## Current State
 
 ### Tech stack
+
 - Language: TypeScript (strict)
 - Runtime: Node.js 20+ (`README.md` prerequisites; `vite.config.ts` + `tsx`)
 - Framework: React 18 + Vite (frontend) + Express 5 (backend API) + wouter + TanStack Query
@@ -23,15 +24,18 @@
 - CI: none (`workspace/alfrouting/.github/` absent)
 
 ### Build status
+
 - `npm install`: not attempted in this handover (node_modules present from prior dev)
 - `npm run build`: not attempted (`tsx script/build.ts` → `dist/`)
 - `npm run test`: not attempted (requires `TEST_DATABASE_URL`; runner refuses without it — correct guard)
 - `npm run check`: not attempted (`tsc`, excludes `*.test.ts` per `tsconfig.json`)
 
 ### Test coverage
+
 - Unknown (no coverage threshold in `package.json` / `vite.config.ts`, no coverage step in CI — CI absent)
 
 ### Repo activity
+
 - Commits in last 90 days: 122
 - Open issues: 0
 - Open PRs: 0
@@ -58,19 +62,23 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 ## Quality Risks
 
 ### Security
+
 - Session secret fallback: `AGENTS.md` notes server generates a temporary per-boot secret if `SESSION_SECRET` absent (sessions reset on restart) — safe default but masks misconfiguration in prod.
 - No secrets scan baseline; `.env.example` only carries `DATABASE_URL`/`TEST_DATABASE_URL` (good) — verify no real secrets in shell history or `saas-rollout-plan.local.md` / `staging-test-logins.md` (both untracked in workspace root, must stay untracked).
 
 ### Dependencies
+
 - Express 5 (`^5.0.1`) + large Radix/shadcn surface — no `/audit-deps` baseline yet. No lockfile audit in this handover.
 
 ### Technical debt
+
 - No lint baseline — style drift likely across 122 recent commits.
 - No coverage gate — 35+ test files exist but no threshold; regressions can slip.
 - In-repo test exclusion: `tsconfig.json` excludes `**/*.test.ts` from `tsc` — type errors in tests are invisible to `npm run check`.
 - Untracked local docs (`docs/`, `ibnNazer-maturity-scale.md`, `saas-rollout-plan.local.md`, `scripts/render-demo-video.py`, `staging-test-logins.md`) — decide what belongs in git vs stays local.
 
 ### Operational
+
 - No CI (`golden-paths/pipelines/ci.yml` never copied) — `main` auto-deploys per `AGENTS.md` ("Every push to `main` deploys it") with no gate.
 - Schema/code coupling risk is known (3 Nov outage: code shipped ahead of `order_details` columns) — mitigated by convention (`migrations/` + `npm run db:verify`) but not mechanically enforced.
 - Branch model: `main` (prod) + `staging` (temp) both exist remotely; local clone sits on `main` with 5 untracked paths.
@@ -78,10 +86,12 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 ## Integration Plan
 
 ### Roles that apply
+
 - tech-lead, backend-engineer, frontend-engineer, qa-engineer (from registry; matches Express + React + test surface)
 - Consider adding `platform-engineer` once CI lands, `security-auditor` for the session-secret + SAP-export surface on first high-risk PR
 
 ### Workflows that kick in
+
 - [ ] PR workflow (`.claude/rules/pr-workflow.md`) — every change through a PR (repo currently ships via direct pushes to `main`)
 - [ ] AgDR for technical decisions (first: CI + lint + coverage baselines)
 - [ ] Code Reviewer agent on every PR
@@ -89,6 +99,7 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 - [ ] `/audit-deps` on adoption and monthly thereafter
 
 ### Hooks to enable
+
 - [ ] `block-git-add-all`
 - [ ] `block-main-push` (high value here — `main` deploys on push)
 - [ ] `validate-branch-name` (tracker currently unused — 0 open issues; decide tracker before enforcing)
@@ -97,6 +108,7 @@ See AgDR-0042 for the scoring rationale and v1 thresholds. Re-score via `/handov
 - [ ] `check-secrets`
 
 ### CI templates to copy in
+
 - [ ] `golden-paths/pipelines/ci.yml` (typecheck + build + guarded tests with `TEST_DATABASE_URL`)
 - [ ] `golden-paths/pipelines/pr-title-check.yml` (once tracker is adopted)
 
