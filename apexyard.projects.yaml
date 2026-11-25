@@ -4,6 +4,22 @@
 version: 1
 
 projects:
+  - name: alfdocument
+    repo: baratsamara/alfdocument
+    workspace: workspace/alfdocument
+    docs: projects/alfdocument
+    status: handover
+    tier: P1
+    roles:
+      - tech-lead
+      - backend-engineer
+      - frontend-engineer
+      - platform-engineer
+      - security-auditor
+    tags:
+      - sandbox
+    ticket_prefix: ""
+
   - name: alfrouting
     repo: baratsamara/alfrouting
     workspace: workspace/alfrouting
