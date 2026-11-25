@@ -21,11 +21,14 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  apexyardPlugin,
   buildToolExecuteBeforeHook,
+  buildV2ExecuteBeforeHook,
   registerGateDispatcher,
   runGateHook,
   execGateHookReal,
   deriveGatesFromOpsRoot,
+  setupApexyardGates,
   type ExecGateHook,
 } from "../src/gate-dispatcher.ts";
 import type { GateDefinition } from "../src/derive-gates.ts";
@@ -257,7 +260,7 @@ function captureStderr(fn: () => void): string {
 test("registerGateDispatcher warns to stderr when a gate is wired to a tool with no stdin builder (read/glob/grep)", () => {
   const { exec } = mockExec({});
   const unsupportedGate: GateDefinition = {
-    name: "suggest-mcp-search",
+    name: "example-advisory",
     hookRelativePath: THIS_FILE_AS_HOOK,
     wires: [{ tool: "read", commandGlob: null }],
   };
@@ -270,7 +273,7 @@ test("registerGateDispatcher warns to stderr when a gate is wired to a tool with
   });
 
   assert.match(combined, /WARNING/);
-  assert.match(combined, /suggest-mcp-search/);
+  assert.match(combined, /example-advisory/);
   assert.match(combined, /"read"/);
 });
 
@@ -322,4 +325,127 @@ test("deriveGatesFromOpsRoot: a missing settings.json is silent (the expected \"
 
   assert.deepEqual(gates, []);
   assert.equal(combined, "", "a missing file is not a parse failure — warning here would be noise for every non-apexyard session");
+});
+
+// ---------------------------------------------------------------------
+// V2 event envelope (opencode 2.x) — buildV2ExecuteBeforeHook receives the
+// single `{tool, input}` event, not the V1 `(input, output)` pair. The
+// 2.x runtime reports the bash tool as "shell" and file paths as "path".
+// ---------------------------------------------------------------------
+
+test("V2: a blocked shell call (2.x tool id) THROWS with the hook's reason", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const { exec } = mockExec({ [path]: { status: 2, stderr: "BLOCKED: fabricated for test\n" } });
+  // Gate wired to "bash" must ALSO match the 2.x "shell" id (TOOL_ALIASES).
+  const gateBothIds: GateDefinition = {
+    name: "block-unreviewed-merge",
+    hookRelativePath: THIS_FILE_AS_HOOK,
+    wires: [
+      { tool: "bash", commandGlob: null },
+      { tool: "shell", commandGlob: null },
+    ],
+  };
+  const handler = buildV2ExecuteBeforeHook(process.cwd(), [gateBothIds], exec);
+
+  await assert.rejects(() => handler({ tool: "shell", input: { command: "gh pr merge 1 --squash" } }), /BLOCKED: fabricated for test/);
+});
+
+test("V2: conditional glob wires match a shell call's command (V1 {args} unwrap parity)", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const { exec, calls } = mockExec({ [path]: { status: 0, stderr: "" } });
+  const conditionalGate: GateDefinition = {
+    name: "block-unreviewed-merge",
+    hookRelativePath: THIS_FILE_AS_HOOK,
+    wires: [{ tool: "shell", commandGlob: "gh pr merge *" }],
+  };
+  const handler = buildV2ExecuteBeforeHook(process.cwd(), [conditionalGate], exec);
+
+  await assert.doesNotReject(() => handler({ tool: "shell", input: { command: "gh pr merge 1 --squash" } }));
+  assert.equal(calls.length, 1, "the hook must RUN for a glob-matching shell command, not be skipped");
+
+  const nonMatching = buildV2ExecuteBeforeHook(process.cwd(), [conditionalGate], exec);
+  await assert.doesNotReject(() => nonMatching({ tool: "shell", input: { command: "echo hello" } }));
+  assert.equal(calls.length, 1, "a non-matching command must not invoke the hook again");
+});
+
+test("V2: an edit call carrying V2's `path` field builds the hook's file_path stdin", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const { exec, calls } = mockExec({ [path]: { status: 0, stderr: "" } });
+  const editGate: GateDefinition = {
+    name: "require-active-ticket",
+    hookRelativePath: THIS_FILE_AS_HOOK,
+    wires: [{ tool: "edit", commandGlob: null }],
+  };
+  const handler = buildV2ExecuteBeforeHook(process.cwd(), [editGate], exec);
+
+  await assert.doesNotReject(() => handler({ tool: "edit", input: { path: "/repo/src/foo.ts" } }));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(JSON.parse(calls[0]!.stdinPayload), {
+    tool_name: "Edit",
+    tool_input: { file_path: "/repo/src/foo.ts" },
+  });
+});
+
+test("V1 conditional-wire parity: a V1 {args}-wrapped call still matches glob wires (no silent skip)", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const { exec, calls } = mockExec({ [path]: { status: 2, stderr: "BLOCKED via conditional glob\n" } });
+  const conditionalGate: GateDefinition = {
+    name: "block-unreviewed-merge",
+    hookRelativePath: THIS_FILE_AS_HOOK,
+    wires: [
+      { tool: "bash", commandGlob: "gh pr merge *" },
+      { tool: "shell", commandGlob: "gh pr merge *" },
+    ],
+  };
+  const handler = buildToolExecuteBeforeHook(process.cwd(), [conditionalGate], exec);
+
+  // The V1 envelope wraps arguments in {args} — the dispatcher must unwrap
+  // before glob matching, or every conditional V1 gate silently never fires.
+  await assert.rejects(
+    () => handler({ tool: "bash", sessionID: "s1", callID: "c1" }, { args: { command: "gh pr merge 1 --squash" } }),
+    /BLOCKED via conditional glob/,
+  );
+  assert.equal(calls.length, 1);
+});
+
+// ---------------------------------------------------------------------
+// Default export — dual V1+V2 entrypoint object (what opencode's loader
+// actually imports). V2 requires an object with id + setup; V1.18.29+
+// calls server().
+// ---------------------------------------------------------------------
+
+test("default export is a dual V1+V2 object: string id, setup + server functions", () => {
+  assert.equal(typeof apexyardPlugin, "object");
+  assert.equal(apexyardPlugin.id, "apexyard");
+  assert.equal(typeof apexyardPlugin.setup, "function");
+  assert.equal(typeof apexyardPlugin.server, "function");
+});
+
+test("default export server() returns V1 Hooks with a working tool.execute.before", async () => {
+  const path = join(process.cwd(), THIS_FILE_AS_HOOK);
+  const hooks = await apexyardPlugin.server({ directory: process.cwd() });
+  assert.ok(hooks["tool.execute.before"]);
+  // Fixture ops root (this package's cwd) has no .claude/settings.json, so
+  // the derived gate table is empty and any call passes through.
+  await assert.doesNotReject(() =>
+    hooks["tool.execute.before"]!({ tool: "bash", sessionID: "s1", callID: "c1" }, { args: { command: "echo hello" } }),
+  );
+});
+
+test("default export setup() registers a V2 execute.before hook against a stub context", async () => {
+  const registered: Array<{ name: string; handler: (event: { tool: string; input: unknown }) => Promise<void> }> = [];
+  const stubCtx = {
+    location: { directory: "/nowhere", project: { id: "p", directory: "/nowhere", canonical: "/nowhere" } },
+    tool: {
+      hook: async (name: string, handler: (event: { tool: string; input: unknown }) => Promise<void>) => {
+        registered.push({ name, handler });
+      },
+    },
+  } as unknown as Parameters<typeof setupApexyardGates>[0];
+
+  await setupApexyardGates(stubCtx);
+  assert.equal(registered.length, 1);
+  assert.equal(registered[0]!.name, "execute.before");
+  // No ops root resolves from /nowhere → permanent no-op, never throws.
+  await assert.doesNotReject(() => registered[0]!.handler({ tool: "shell", input: { command: "anything" } }));
 });

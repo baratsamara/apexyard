@@ -196,8 +196,8 @@ test("findUnsupportedGateWires: a gate wired only to bash/edit/write reports not
 test("findUnsupportedGateWires: a gate wired to read/glob/grep is reported, once per tool", () => {
   const gates: GateDefinition[] = [
     {
-      name: "suggest-mcp-search",
-      hookRelativePath: ".claude/hooks/suggest-mcp-search.sh",
+      name: "example-advisory",
+      hookRelativePath: ".claude/hooks/example-advisory.sh",
       wires: [
         { tool: "bash", commandGlob: "grep *" },
         { tool: "read", commandGlob: null },
@@ -211,19 +211,19 @@ test("findUnsupportedGateWires: a gate wired to read/glob/grep is reported, once
     found.map((f) => f.tool).sort(),
     ["glob", "grep", "read"],
   );
-  assert.ok(found.every((f) => f.gateName === "suggest-mcp-search"));
+  assert.ok(found.every((f) => f.gateName === "example-advisory"));
 });
 
-test("findUnsupportedGateWires, run against this repo's real .claude/settings.json, flags suggest-mcp-search.sh's Read/Glob/Grep wiring", () => {
+test("findUnsupportedGateWires, run against this repo's real .claude/settings.json, finds no unsupported wire", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const settingsPath = join(here, "..", "..", "..", ".claude", "settings.json");
   const raw = JSON.parse(readFileSync(settingsPath, "utf-8")) as RawSettings;
   const dispatcherPath = join(here, "..", "..", "..", ".claude", "hooks", "dispatch-bash.sh");
   const gates = [...deriveGatesFromSettings(raw), ...deriveGatesFromDispatcher(readFileSync(dispatcherPath, "utf-8"))];
-  const found = findUnsupportedGateWires(gates);
-  assert.ok(
-    found.some((f) => f.gateName === "suggest-mcp-search" && f.tool === "read"),
-    "the real settings.json wires suggest-mcp-search.sh to Read|Glob|Grep — this must surface as an unsupported wire, not silently vanish",
+  assert.deepEqual(
+    findUnsupportedGateWires(gates),
+    [],
+    "no hook is wired to Read|Glob|Grep today — a new one must surface here as an unsupported wire",
   );
 });
 
@@ -240,9 +240,36 @@ test("buildToolInput returns undefined for a tool this dispatcher doesn't recons
 
 test("claudeToolNameFor maps opencode tool ids back to the Claude Code tool_name hooks expect", () => {
   assert.equal(claudeToolNameFor("bash"), "Bash");
+  assert.equal(claudeToolNameFor("shell"), "Bash");
   assert.equal(claudeToolNameFor("edit"), "Edit");
   assert.equal(claudeToolNameFor("write"), "Write");
   assert.equal(claudeToolNameFor("read"), "Read");
+});
+
+test("deriveGatesFromSettings wires Bash gates to BOTH the 1.x (bash) and 2.x (shell) tool ids", () => {
+  const gates = deriveGatesFromSettings(fixtureSettings());
+  const mergeGate = gates.find((g) => g.name === "block-unreviewed-merge")!;
+  const tools = mergeGate.wires.map((w) => w.tool);
+  assert.ok(tools.includes("bash"), "1.x runtime id must stay wired");
+  assert.ok(tools.includes("shell"), "2.x runtime id must be wired or every Bash gate is silent on 2.x");
+  // Same globs on both ids — the alias is a pure id translation, not a new gate.
+  assert.deepEqual(
+    mergeGate.wires.filter((w) => w.tool === "shell").map((w) => w.commandGlob).sort(),
+    mergeGate.wires.filter((w) => w.tool === "bash").map((w) => w.commandGlob).sort(),
+  );
+});
+
+test("gateMatchesToolCall: a shell (2.x) call matches a Bash-derived gate's globs", () => {
+  const gates = deriveGatesFromSettings(fixtureSettings());
+  const mergeGate = gates.find((g) => g.name === "block-unreviewed-merge")!;
+  assert.ok(gateMatchesToolCall(mergeGate, "shell", "gh pr merge 42 --squash"));
+  assert.ok(!gateMatchesToolCall(mergeGate, "shell", "gh pr view 42"));
+});
+
+test("buildToolInput accepts the V2 raw-input shape (no {args} wrapper) as well as the V1 {args} shape", () => {
+  assert.deepEqual(buildToolInput("shell", { command: "gh pr merge 1" }), { command: "gh pr merge 1" });
+  assert.deepEqual(buildToolInput("edit", { path: "/repo/src/foo.ts" }), { file_path: "/repo/src/foo.ts" });
+  assert.deepEqual(buildToolInput("edit", { filePath: "/repo/src/foo.ts" }), { file_path: "/repo/src/foo.ts" });
 });
 
 // ---------------------------------------------------------------------

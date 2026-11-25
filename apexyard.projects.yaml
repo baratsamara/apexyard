@@ -20,6 +20,38 @@ projects:
       - revenue
     ticket_prefix: ""
 
+  - name: alfrouting
+    repo: baratsamara/alfrouting
+    workspace: workspace/alfrouting
+    docs: projects/alfrouting
+    status: handover
+    tier: P1
+    roles:
+      - tech-lead
+      - backend-engineer
+      - frontend-engineer
+      - qa-engineer
+    tags:
+      - internal
+      - sandbox
+    ticket_prefix: ""
+
+  - name: alfqc
+    repo: baratsamara/alfQc
+    workspace: workspace/alfqc/alfQc
+    docs: projects/alfqc
+    status: handover
+    tier: P1
+    roles:
+      - tech-lead
+      - backend-engineer
+      - frontend-engineer
+      - qa-engineer
+    tags:
+      - internal
+      - sandbox
+    ticket_prefix: ""
+
 # ----------------------------------------------------------------------------
 # Defaults
 # ----------------------------------------------------------------------------

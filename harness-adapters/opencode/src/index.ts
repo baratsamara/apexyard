@@ -35,6 +35,14 @@
  * `["default"]`. This is the single file opencode's plugin-subdirectory
  * discovery is meant to see.
  *
+ * V2 NOTE: the default export is now a dual V1+V2 OBJECT
+ * (`{id, setup, server}`), not a function — which is exactly what V2
+ * requires ("Plugin must export a default definition with an id and an
+ * effect or setup function"). The shim rationale is unchanged: whatever
+ * the default export's shape, it must be the ONLY export, because
+ * opencode's loader invokes every exported function of a discovered file
+ * as a candidate plugin factory.
+ *
  * Every file this adapter needs (this shim, `gate-dispatcher.ts`,
  * `derive-gates.ts`, `resolve-ops-root.ts`, and a sibling copy of the
  * shared `derive-gates-core.ts`) ships inside ONE subdirectory —
