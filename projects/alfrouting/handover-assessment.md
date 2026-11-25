@@ -132,9 +132,9 @@ Note: registry previously had typo `alfrrouting` — fixed 2026-11-24. `AGENTS.m
 
 ## Next Steps
 
-1. Copy in `golden-paths/pipelines/ci.yml` with `TEST_DATABASE_URL` wired as a CI secret (repo pushes to `main` deploy with no gate today)
-2. Decide tracker discipline: 0 open issues + 0 open PRs with 122 commits in 90 days means work is invisible — adopt GitHub Issues or document why not
-3. Add lint baseline (ESLint) and run before pushing — `AGENTS.md` currently says "no linter, run `npm run check` instead"
+1. ~~Copy in `golden-paths/pipelines/ci.yml` with `TEST_DATABASE_URL` wired as a CI secret (repo pushes to `main` deploy with no gate today)~~ → Filed as [#1](https://github.com/baratsamara/alfrouting/issues/1)
+2. ~~Decide tracker discipline: 0 open issues + 0 open PRs with 122 commits in 90 days means work is invisible — adopt GitHub Issues or document why not~~ → Filed as [#2](https://github.com/baratsamara/alfrouting/issues/2)
+3. ~~Add lint baseline (ESLint) and run before pushing — `AGENTS.md` currently says "no linter, run `npm run check` instead"~~ → Filed as [#3](https://github.com/baratsamara/alfrouting/issues/3)
 4. Add coverage reporting (vitest/node-test coverage config + threshold) before the first feature under governance
 5. Triage the 5 untracked workspace paths (`docs/`, `ibnNazer-maturity-scale.md`, `saas-rollout-plan.local.md`, `scripts/render-demo-video.py`, `staging-test-logins.md`) — commit what belongs, gitignore the rest (especially `staging-test-logins.md`)
 6. `/code-review` the most-recent `main` commits on this repo as Rex to calibrate review standards

@@ -136,9 +136,9 @@ Note: `workspace` previously pointed at the container `workspace/alfqc` — fixe
 ## Next Steps
 
 1. ~~Review and merge-or-close PR #1 (session persistence + PWA + mobile Save-button fixes)~~ → Done 2026-11-25 (merged `staging` → `main`)
-2. Copy in `golden-paths/pipelines/ci.yml` (typecheck + build + tests) — no gate exists today
-3. Decide tracker discipline: 0 open issues with 280 commits in 90 days means work is invisible — adopt GitHub Issues or document why not
-4. Add lint baseline (ESLint) and run before pushing
+2. ~~Copy in `golden-paths/pipelines/ci.yml` (typecheck + build + tests) — no gate exists today~~ → Filed as [#2](https://github.com/baratsamara/alfQc/issues/2)
+3. ~~Decide tracker discipline: 0 open issues with 280 commits in 90 days means work is invisible — adopt GitHub Issues or document why not~~ → Filed as [#3](https://github.com/baratsamara/alfQc/issues/3)
+4. ~~Add lint baseline (ESLint) and run before pushing~~ → Filed as [#4](https://github.com/baratsamara/alfQc/issues/4)
 5. Add coverage reporting + threshold before the first feature under governance
 6. Resolve dual lockfiles (`package-lock.json` vs `pnpm-lock.yaml`) — one package manager only
 7. `/code-review` the most-recent `staging` commits on this repo as Rex to calibrate review standards
