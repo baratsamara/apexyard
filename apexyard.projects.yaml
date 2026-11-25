@@ -4,22 +4,6 @@
 version: 1
 
 projects:
-  - name: theAunties
-    repo: baratsamara/theAunties
-    workspace: workspace/theAunties
-    docs: projects/theAunties
-    status: active
-    tier: P0
-    roles:
-      - tech-lead
-      - frontend-engineer
-      - backend-engineer
-      - qa-engineer
-    tags:
-      - customer-facing
-      - revenue
-    ticket_prefix: ""
-
   - name: alfrouting
     repo: baratsamara/alfrouting
     workspace: workspace/alfrouting
