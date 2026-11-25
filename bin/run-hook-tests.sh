@@ -115,6 +115,7 @@ QUARANTINE=(
   ".claude/hooks/tests/test_pre_push_gate_case_insensitive_fs.sh :: requires a case-insensitive filesystem"
   ".claude/hooks/tests/test_tracker_zsh_self_location.sh :: requires zsh"
   ".claude/skills/pdf/tests/test_md_to_pdf_fallback.sh :: requires opt-in PDF end-to-end dependencies"
+  ".claude/skills/orbit/tests/test_records_lint_slice_merge_base_drift.sh :: fail-before needs upstream/dev-only SHA a791285d, unreachable from fork checkouts (me2resh/apexyard#2164)"
 )
 
 is_quarantined() {
