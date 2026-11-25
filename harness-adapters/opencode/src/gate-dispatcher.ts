@@ -33,36 +33,63 @@
  * `src/derive-gates.ts` parses `.claude/settings.json` directly — see that
  * file's header comment for the full rationale (the #730 convergence Tariq
  * asked for). The pi adapter is NOT modified by this change; it should
- * converge to the same derive-from-settings.json pattern in a follow-up,
+ * converge to the same settings.json-derived pattern in a follow-up,
  * not as part of this PR.
  *
  * REAL OPENCODE TYPES, NOT GUESSES
  * -----------------------------------
- * `Plugin`, `PluginInput`, `Hooks` are imported (type-only) from the real,
- * installed `@opencode-ai/plugin` package (verified against its shipped
- * `dist/index.d.ts`, not documentation alone — same discipline the pi
- * adapter used against `@earendil-works/pi-coding-agent`). Two facts this
- * verification confirmed, matching the ticket's stated ACs:
+ * `Plugin.Context` is imported (type-only — erased at load, so the
+ * installed plugin copy needs no `node_modules` beside it) from the real,
+ * installed `@opencode/plugin` package (V2, verified against its shipped
+ * `dist/promise/*.d.ts`, not documentation alone — same discipline the pi
+ * adapter used). Three facts this verification confirmed:
  *
- *   - `input.tool === "bash"` and `output.args.command` for the bash tool
- *     (opencode's bash tool is internally implemented in `shell.ts`, but
- *     its registered tool id — the value `tool.execute.before`'s `input.tool`
- *     carries — is literally `"bash"`, kept for plugin backwards
- *     compatibility per opencode's own source comment).
- *   - Blocking is done by THROWING inside the `"tool.execute.before"`
- *     handler — opencode has no `{block: true}` return contract the way pi
- *     does. `output.args` is untyped (`any`) in opencode's own `Hooks`
- *     interface, so this dispatcher reads `output.args.command` /
- *     `output.args.filePath` defensively (see `derive-gates.ts`'s
- *     `buildToolInput`), the same "return undefined rather than invoke with
- *     a garbage payload" contract the pi adapter uses.
+ *   - The 2.x `ctx.tool.hook("execute.before")` event carries
+ *     `{tool, input, ...}` where `input` is the tool's arguments DIRECTLY
+ *     (not wrapped in `{args}` the way 1.x's second `output` parameter
+ *     was). `buildToolInput`/`unwrapToolArgs` (in derive-gates.ts) accept
+ *     both shapes.
+ *   - The 2.x runtime reports the bash tool as `"shell"`, not `"bash"`
+ *     (proven from real session data on 2.4.1: `session_part` rows carry
+ *     `name=shell` where 1.x's `part` table carried `name=bash`, same
+ *     `{command}` input shape). `Bash` gates are wired to BOTH ids (see
+ *     derive-gates.ts's TOOL_ALIASES) — wiring only `"bash"` leaves every
+ *     Bash gate silent on 2.x, a total fail-open.
+ *   - The 2.x runtime reports file paths as `path`, not `filePath`
+ *     (proven: 12/12 sampled 2.x `read` calls carry `path`; same for
+ *     `grep`/`glob`). `buildToolInput` accepts `filePath` first with
+ *     `file_path` / `path` / `file` fallbacks, so a rename in either
+ *     direction fails toward still gating rather than silently skipping.
+ *
+ *   - Blocking is done by THROWING inside the `"execute.before"` handler —
+ *     opencode has no `{block: true}` return contract the way pi does.
+ *     (V1 and V2 alike; third-party reports confirm "tool.execute.before
+ *     errors block the tool" on 2.x.)
+ *
+ * V2 PORT (opencode 2.x): the V1 `Plugin` function export
+ * (`@opencode-ai/plugin`, `async (input) => Hooks`) does NOT run in V2 —
+ * V2 requires a default-exported object with an `id` and a `setup`
+ * function registering `ctx.tool.hook("execute.before", handler)`. This
+ * file exports that dual V1+V2 entrypoint: V2 reads `id` + `setup` and
+ * ignores `server()`; opencode 1.18.29+ calls `server()` and uses the
+ * returned `tool.execute.before` hook. Older V1 releases expecting a bare
+ * function export are not supported — use a pinned older adapter for
+ * those. The object literal is hand-written rather than built with the
+ * SDK's `Plugin.define()` (which is the identity function — `define(p) {
+ * return p; }` — verified in the installed SDK source) precisely so the
+ * installed plugin copy has ZERO runtime imports: every `import` in this
+ * file besides node builtins is `import type`, erased before opencode's
+ * loader ever sees it. A runtime SDK import is what broke the first V2
+ * port attempt live (`Cannot find package '@opencode/plugin'` — the
+ * installed copy ships with no `node_modules` beside it).
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 
-import type { Hooks, Plugin } from "@opencode-ai/plugin";
+import type { Hooks, Plugin as V1Plugin } from "@opencode-ai/plugin";
+import type { Plugin as V2Plugin } from "@opencode/plugin";
 
 import {
   buildToolInput,
@@ -71,10 +98,20 @@ import {
   deriveGatesFromSettings,
   findUnsupportedGateWires,
   gateMatchesToolCall,
+  unwrapToolArgs,
   type GateDefinition,
   type RawSettings,
 } from "./derive-gates.ts";
 import { resolveOpsRootForOpencode } from "./resolve-ops-root.ts";
+
+/** V2 `ctx.tool.hook("execute.before")` event, structurally (no runtime SDK import needed). */
+export type V2ToolBeforeEvent = { tool: string; input: unknown };
+/** V2 plugin context, structurally (no runtime SDK import needed). */
+export type V2SetupContext = V2Plugin.Context;
+/** V1 `tool.execute.before` handler signature (kept honest against the real V1 types). */
+export type V1ToolExecuteBeforeHandler = NonNullable<Hooks["tool.execute.before"]>;
+/** V1 plugin factory signature (kept honest against the real V1 types). */
+export type V1PluginFactory = V1Plugin;
 
 export interface GateHookResult {
   block: boolean;
@@ -209,8 +246,8 @@ export function runGateHook(
 export interface DispatcherOptions {
   /** Override the derived gate table (mainly for tests — production always derives from settings.json). */
   gates?: GateDefinition[];
-  /** Override ops-root resolution (mainly for tests). Defaults to resolveOpsRootForOpencode against PluginInput.directory. */
-  resolveOpsRoot?: (ctx: { directory: string; worktree: string }) => string | undefined;
+  /** Override ops-root resolution (mainly for tests). Defaults to resolveOpsRootForOpencode against the location directory. */
+  resolveOpsRoot?: (ctx: { directory: string; worktree?: string }) => string | undefined;
   /** Path to settings.json relative to the ops root. Defaults to ".claude/settings.json". */
   settingsRelativePath?: string;
   /** Injection point for tests — see ExecGateHook. Defaults to a real `bash <hook>` subprocess spawn. */
@@ -218,17 +255,72 @@ export interface DispatcherOptions {
 }
 
 /**
- * Builds the `"tool.execute.before"` handler for a resolved ops root +
- * gate table. Split out from `apexyardGateDispatcher` (the plugin's default
- * export) so tests can drive it directly without importing the real
- * `@opencode-ai/plugin` runtime — mirrors the pi adapter's
+ * Shared core: evaluates every gate wired to this tool call, throwing on
+ * the first block. Both the V1 handler (`buildToolExecuteBeforeHook`,
+ * which receives the 1.x `(input, output)` pair) and the V2 handler
+ * (`buildV2ExecuteBeforeHook`, which receives the 2.x single `event`)
+ * funnel through here — the only difference between the two runtimes is
+ * the event envelope, normalized by `unwrapToolArgs` (V1 wraps arguments
+ * in `{args}`, V2 passes them directly).
+ */
+export function evaluateToolCall(
+  opsRoot: string | undefined,
+  gates: GateDefinition[],
+  toolId: string,
+  eventInput: unknown,
+  execGateHook: ExecGateHook = execGateHookReal,
+): void {
+  if (!opsRoot) return; // no apexyard fork found on this machine/session — nothing to enforce, fail toward not-blocking
+  const args = unwrapToolArgs(eventInput);
+  const command = args.command;
+
+  // Run every gate wired to this tool. First hook to block wins — mirrors
+  // Claude Code's own PreToolUse semantics, where any matching hook
+  // exiting 2 halts the tool call regardless of what other matched hooks
+  // would have said.
+  for (const gate of gates) {
+    if (!gateMatchesToolCall(gate, toolId, typeof command === "string" ? command : undefined)) continue;
+    const toolInput = buildToolInput(toolId, args);
+    if (!toolInput) continue;
+    const claudeToolName = claudeToolNameFor(toolId);
+    const result = runGateHook(opsRoot, gate, toolInput, claudeToolName, execGateHook);
+    if (result?.block) {
+      // opencode has no `{block: true}` return contract — throwing inside
+      // "execute.before" is the documented way to deny a tool call (V1 and V2 alike).
+      throw new Error(result.reason ?? `Blocked by apexyard governance gate (${gate.name})`);
+    }
+  }
+}
+
+/**
+ * Builds the V2 `"execute.before"` handler for a resolved ops root +
+ * gate table (`ctx.tool.hook("execute.before", handler)`). Split out from
+ * the plugin's `setup` so tests can drive it directly without importing
+ * any real `@opencode/plugin` runtime (there is none — see the header
+ * comment; the installed copy must stay dependency-free).
+ */
+export function buildV2ExecuteBeforeHook(
+  opsRoot: string | undefined,
+  gates: GateDefinition[],
+  execGateHook: ExecGateHook = execGateHookReal,
+): (event: V2ToolBeforeEvent) => Promise<void> {
+  return async (event) => {
+    evaluateToolCall(opsRoot, gates, event.tool, event.input, execGateHook);
+  };
+}
+
+/**
+ * Builds the V1-compatible `"tool.execute.before"` handler for a resolved
+ * ops root + gate table. Split out from `registerGateDispatcher` (the V1
+ * plugin entry point) so tests can drive it directly without importing
+ * the real `@opencode-ai/plugin` runtime — mirrors the pi adapter's
  * `registerGateDispatcher` / default-export split.
  */
 export function buildToolExecuteBeforeHook(
   opsRoot: string | undefined,
   gates: GateDefinition[],
   execGateHook: ExecGateHook = execGateHookReal,
-): NonNullable<Hooks["tool.execute.before"]> {
+): V1ToolExecuteBeforeHandler {
   return async (input, output) => {
     if (!opsRoot) return; // no apexyard fork found on this machine/session — nothing to enforce, fail toward not-blocking
     // opencode can host concurrent sessions. Carry the native id per call.
@@ -258,7 +350,9 @@ export function buildToolExecuteBeforeHook(
       const quotedId = "'" + sessionId.replaceAll("'", "'\\''") + "'";
       // Unset first: an inherited Claude Code id would otherwise win the
       // marker-path resolver over APEXYARD_SESSION_ID (#1783).
-      output.args.command = `unset CLAUDE_CODE_SESSION_ID\nexport APEXYARD_SESSION_ID=${quotedId}\n${command}`;
+      output.args.command = `unset CLAUDE_CODE_SESSION_ID
+export APEXYARD_SESSION_ID=${quotedId}
+${command}`;
     }
   };
 }
@@ -304,20 +398,35 @@ export function deriveGatesFromOpsRoot(opsRoot: string, settingsRelativePath: st
 }
 
 /**
- * Builds the full `Hooks` object for a given opencode `PluginInput`. This
- * is what both the default export and a custom extension entry point call.
- * Ops-root resolution and gate derivation both happen ONCE here, at plugin
- * init — not per tool call — because opencode's plugin lifecycle hands
- * `directory`/`worktree` once and doesn't offer a fresher cwd on
+ * Resolves the ops root + full gate table for a given location. Ops-root
+ * resolution and gate derivation both happen ONCE here, at plugin init —
+ * not per tool call — because opencode's plugin lifecycle hands
+ * `location.directory` once and doesn't offer a fresher cwd on
  * subsequent events (see `resolve-ops-root.ts`'s header comment for why
- * this differs from the pi adapter's per-call resolution).
+ * this differs from the pi adapter's per-call resolution). If the walk-up
+ * from `location.directory` finds no anchor, `location.project.canonical`
+ * (when present) is tried as a fallback before giving up.
  */
-export function registerGateDispatcher(pluginInput: { directory: string; worktree: string }, options: DispatcherOptions = {}): Hooks {
-  const resolve = options.resolveOpsRoot ?? ((ctx) => resolveOpsRootForOpencode({ startCwd: ctx.directory }));
-  const opsRoot = resolve({ directory: pluginInput.directory, worktree: pluginInput.worktree });
+export function resolveGatesForLocation(
+  location: { directory: string; project?: { canonical?: string } },
+  options: DispatcherOptions = {},
+): { opsRoot: string | undefined; gates: GateDefinition[] } {
+  const resolve =
+    options.resolveOpsRoot ??
+    ((ctx) => {
+      const fromDir = resolveOpsRootForOpencode({ startCwd: ctx.directory });
+      if (fromDir) return fromDir;
+      return undefined;
+    });
+  const opsRoot = resolve({ directory: location.directory });
+  const fallbackRoot =
+    !opsRoot && location.project?.canonical
+      ? resolveOpsRootForOpencode({ startCwd: location.project.canonical })
+      : undefined;
+  const root = opsRoot ?? fallbackRoot;
 
   const gates =
-    options.gates ?? (opsRoot ? deriveGatesFromOpsRoot(opsRoot, options.settingsRelativePath ?? ".claude/settings.json") : []);
+    options.gates ?? (root ? deriveGatesFromOpsRoot(root, options.settingsRelativePath ?? ".claude/settings.json") : []);
 
   // #840 C2: warn loudly, once at init, about any gate wired to a tool this
   // adapter has no stdin builder for (today: read/glob/grep — see
@@ -328,18 +437,65 @@ export function registerGateDispatcher(pluginInput: { directory: string; worktre
   for (const unsupported of findUnsupportedGateWires(gates)) {
     process.stderr.write(
       `apexyard gate dispatcher: WARNING — gate "${unsupported.gateName}" is wired to opencode tool "${unsupported.tool}", ` +
-        `which this adapter has no stdin builder for (buildToolInput only supports bash/edit/write). This gate is SILENTLY SKIPPED ` +
+        `which this adapter has no stdin builder for (buildToolInput only supports bash/shell/edit/write). This gate is SILENTLY SKIPPED ` +
         `for "${unsupported.tool}" tool calls — it never runs, so it can never block one. See derive-gates.ts's findUnsupportedGateWires for details.\n`,
     );
   }
+
+  return { opsRoot: root, gates };
+}
+
+/**
+ * V1 plugin entry point (`server()`): builds the full `Hooks`-shaped
+ * object for a given `{ directory, worktree }`. Kept for opencode 1.x
+ * (`server()` is ignored by the V2 runtime, which uses `setup` below).
+ */
+export function registerGateDispatcher(
+  pluginInput: { directory: string; worktree?: string },
+  options: DispatcherOptions = {},
+): Hooks {
+  const { opsRoot, gates } = resolveGatesForLocation({ directory: pluginInput.directory }, options);
 
   return {
     "tool.execute.before": buildToolExecuteBeforeHook(opsRoot, gates, options.execGateHook),
   };
 }
 
-/** Default export — what opencode's `.opencode/plugin/*.ts` auto-discovery (or an explicit `plugin` config entry) loads. */
-const apexyardGateDispatcher: Plugin = async (input) => registerGateDispatcher(input);
+/**
+ * V2 setup body shared by the default export — resolves gates once, then
+ * registers `ctx.tool.hook("execute.before")`. Split out so the smoke
+ * test can drive it with a stub context (no real SDK runtime needed).
+ */
+export async function setupApexyardGates(ctx: V2SetupContext, options: DispatcherOptions = {}): Promise<void> {
+  const { opsRoot, gates } = resolveGatesForLocation(
+    { directory: ctx.location.directory, project: ctx.location.project },
+    options,
+  );
+  await ctx.tool.hook("execute.before", buildV2ExecuteBeforeHook(opsRoot, gates, options.execGateHook));
+}
 
-export default apexyardGateDispatcher;
-export { apexyardGateDispatcher };
+/**
+ * Default export — dual V1+V2 entrypoint (per the migrate-v1 "Support V1
+ * and V2 from one package" shape, minus the SDK's `Plugin.define()`
+ * wrapper, which is the identity function — see the header comment). V2
+ * reads `id` + `setup` and ignores `server()`; opencode 1.18.29+ calls
+ * `server()` (with the V1 PluginInput when it provides one) and uses the
+ * returned `tool.execute.before` hook. Older V1 releases expecting a bare
+ * function export are not supported — use a pinned older adapter for
+ * those.
+ */
+export const apexyardPlugin: {
+  id: string;
+  setup: (ctx: V2SetupContext) => Promise<void>;
+  server: (input?: { directory?: string; worktree?: string }) => Promise<Hooks>;
+} = {
+  id: "apexyard",
+  async setup(ctx) {
+    await setupApexyardGates(ctx);
+  },
+  async server(input) {
+    return registerGateDispatcher({ directory: input?.directory ?? process.cwd(), worktree: input?.worktree });
+  },
+};
+
+export default apexyardPlugin;

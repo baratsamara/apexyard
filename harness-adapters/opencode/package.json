@@ -16,6 +16,7 @@
     "toml": "^4.2.0"
   },
   "devDependencies": {
+    "@opencode/plugin": "^2.4.1",
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2"
   },

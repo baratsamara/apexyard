@@ -128,15 +128,13 @@ export interface GateDefinition {
 }
 
 /**
- * Claude Code matcher token -> opencode built-in tool id. Confirmed against
- * opencode's real, installed tool registry (`packages/opencode/src/tool/`):
- * the bash tool's registered id is literally `"bash"` (kept for backwards
- * compatibility even though the source file implementing it is
- * `shell.ts`), and `edit`/`write`/`read`/`grep`/`glob` match their Claude
- * Code matcher names 1:1. `MultiEdit` has no opencode equivalent — opencode's
- * `edit` tool already accepts the same "one file, N find/replace pairs"
- * shape MultiEdit covers, so MultiEdit collapses onto `edit` (the same
- * choice the pi adapter made for the same reason).
+ * Claude Code matcher token -> opencode built-in tool id. The bash tool's
+ * registered id differs by runtime generation, so `Bash` maps to TWO ids
+ * (see TOOL_ALIASES below). `edit`/`write`/`read`/`grep`/`glob` match
+ * their Claude Code matcher names 1:1. `MultiEdit` has no opencode
+ * equivalent — opencode's `edit` tool already accepts the same "one file, N
+ * find/replace pairs" shape MultiEdit covers, so MultiEdit collapses onto
+ * `edit` (the same choice the pi adapter made for the same reason).
  */
 const CLAUDE_MATCHER_TO_OPENCODE_TOOL: Record<string, string> = {
   Bash: "bash",
@@ -148,9 +146,27 @@ const CLAUDE_MATCHER_TO_OPENCODE_TOOL: Record<string, string> = {
   Grep: "grep",
 };
 
+/**
+ * Extra runtime tool ids that behave as an alias of a mapped tool.
+ *
+ * `bash: ["shell"]` — opencode 1.x reported the bash tool as `"bash"` (kept
+ * for backwards compatibility even though the source file implementing it
+ * is `shell.ts`); the 2.x `ctx.tool.hook("execute.before")` event reports
+ * the same tool as `"shell"`. Proven from real session data on opencode
+ * 2.4.1, not docs: `session_part` rows carry `name=shell` (41 calls) where
+ * the 1.x `part` table carried `name=bash` (2823 calls), with the same
+ * `{command}` input shape. Wiring only `"bash"` leaves every Bash-command
+ * gate silent on 2.x — a total fail-open — so both ids are wired and
+ * `gateMatchesToolCall` treats them as alternatives.
+ */
+const TOOL_ALIASES: Record<string, string[]> = {
+  bash: ["shell"],
+};
+
 /** Reverse of the above — the `tool_name` field the bash hooks' own `.tool_name` jq lookups expect. */
 const OPENCODE_TOOL_TO_CLAUDE_NAME: Record<string, string> = {
   bash: "Bash",
+  shell: "Bash", // 2.x runtime id for the same tool — hooks still expect "Bash"
   edit: "Edit",
   write: "Write",
   read: "Read",
@@ -184,6 +200,11 @@ export function deriveGatesFromSettings(settings: RawSettings): GateDefinition[]
       const tool = CLAUDE_MATCHER_TO_OPENCODE_TOOL[wire.claudeMatcher];
       if (!tool) continue; // matcher this adapter has no opencode tool for (e.g. a future Claude-only matcher)
       wires.push({ tool, commandGlob: wire.commandGlob });
+      // Runtime aliases (e.g. 2.x "shell" for the bash tool) get their own
+      // wire with the same glob so matching works on both runtimes.
+      for (const alias of TOOL_ALIASES[tool] ?? []) {
+        wires.push({ tool: alias, commandGlob: wire.commandGlob });
+      }
     }
     if (wires.length === 0) continue; // every wire for this gate was for an untranslatable matcher
     translated.push({ name: coreGate.name, hookRelativePath: coreGate.hookRelativePath, wires });
@@ -199,7 +220,10 @@ export function deriveGatesFromDispatcher(source: string): GateDefinition[] {
   for (const coreGate of coreGates) {
     const wires = coreGate.wires.flatMap((wire) => {
       const tool = CLAUDE_MATCHER_TO_OPENCODE_TOOL[wire.claudeMatcher];
-      return tool ? [{ tool, commandGlob: wire.commandGlob }] : [];
+      if (!tool) return [];
+      const primary = [{ tool, commandGlob: wire.commandGlob }];
+      const aliases = (TOOL_ALIASES[tool] ?? []).map((alias) => ({ tool: alias, commandGlob: wire.commandGlob }));
+      return [...primary, ...aliases];
     });
     if (wires.length > 0) translated.push({ name: coreGate.name, hookRelativePath: coreGate.hookRelativePath, wires });
   }
@@ -230,32 +254,46 @@ export function gateMatchesToolCall(gate: GateDefinition, toolId: string, comman
 
 /**
  * Builds the Claude-Code-shaped `tool_input` object each hook's own `jq`
- * parsing expects, from an opencode `tool.execute.before` event. Returns
- * `undefined` when the event doesn't carry the field a hook needs — the
- * dispatcher then skips invoking that hook for that event rather than
+ * parsing expects, from a tool call's arguments. Accepts EITHER the V1
+ * `output` shape (`{ args: {...} }` — opencode 1.x `tool.execute.before`'s
+ * second parameter) or the V2 `event.input` value directly (opencode 2.x
+ * `ctx.tool.hook("execute.before")`'s single event) — unwraps `.args` when
+ * present, otherwise treats the value itself as the args object. Returns
+ * `undefined` when the call doesn't carry the field a hook needs — the
+ * dispatcher then skips invoking that hook for that call rather than
  * invoking it with a garbage payload (same "skip, don't guess" contract
  * the pi adapter uses).
  *
  * Field names are chosen to match Claude Code's OWN `tool_input` shape
  * directly (`command`, `file_path`) rather than opencode's native field
- * names (`command`, `filePath`) — this is simpler than the pi adapter's
- * approach (which relied on `require-active-ticket.sh`'s existing
- * `.tool_input.file_path // .tool_input.path` fallback because pi's own
- * field is named `path`); since this module constructs the JSON payload
- * itself rather than forwarding a native field name, it can just emit the
- * name the hooks already read as their primary key.
+ * names — this module constructs the JSON payload itself rather than
+ * forwarding a native field name, so it can just emit the name the hooks
+ * already read as their primary key.
+ *
+ * V2 field evidence (proven from real session data on opencode 2.4.1, not
+ * docs): the shell tool still uses `command`; `read`/`grep`/`glob` use
+ * `path` (the 1.x `filePath` is gone there — 12/12 sampled V2 `read` calls
+ * carry `path`). No V2 `edit`/`write` calls were observed in the sampled
+ * sessions, so those accept `filePath` first with `file_path` / `path` /
+ * `file` as fallbacks — a future rename fails toward still gating rather
+ * than silently skipping.
  */
-export function buildToolInput(toolId: string, output: ToolCallOutput | undefined): Record<string, unknown> | undefined {
-  const args = output?.args ?? {};
+export function buildToolInput(toolId: string, output: ToolCallOutput | Record<string, unknown> | unknown): Record<string, unknown> | undefined {
+  const raw = output as { args?: unknown } | Record<string, unknown> | undefined;
+  const args = (raw != null && typeof raw === "object" && "args" in raw
+    ? (raw as { args?: unknown }).args
+    : raw) as Record<string, unknown> | undefined;
+  const record = args ?? {};
   switch (toolId) {
-    case "bash": {
-      const command = (args as Record<string, unknown>).command;
+    case "bash":
+    case "shell": { // 1.x reports "bash", 2.x reports "shell" — same tool, same stdin
+      const command = record.command;
       if (typeof command !== "string" || command.length === 0) return undefined;
       return { command };
     }
     case "edit":
     case "write": {
-      const filePath = (args as Record<string, unknown>).filePath;
+      const filePath = record.filePath ?? record.file_path ?? record.path ?? record.file;
       if (typeof filePath !== "string" || filePath.length === 0) return undefined;
       return { file_path: filePath };
     }
@@ -265,11 +303,25 @@ export function buildToolInput(toolId: string, output: ToolCallOutput | undefine
 }
 
 /**
+ * Unwraps a tool call's arguments the same way `buildToolInput` does, for
+ * callers that need a field (e.g. the Bash `command` for glob matching)
+ * without building the full stdin payload. Single source of truth for the
+ * V1-`{args}` / V2-raw-input duality so the two can never disagree.
+ */
+export function unwrapToolArgs(output: ToolCallOutput | Record<string, unknown> | unknown): Record<string, unknown> {
+  const raw = output as { args?: unknown } | Record<string, unknown> | undefined;
+  const args = (raw != null && typeof raw === "object" && "args" in raw
+    ? (raw as { args?: unknown }).args
+    : raw) as Record<string, unknown> | undefined;
+  return args ?? {};
+}
+
+/**
  * The opencode tool ids `buildToolInput` above knows how to reconstruct
  * stdin for. Kept as a single source of truth so `findUnsupportedGateWires`
  * below can never drift from `buildToolInput`'s own `switch` cases.
  */
-const SUPPORTED_TOOL_INPUT_TOOLS = new Set(["bash", "edit", "write"]);
+const SUPPORTED_TOOL_INPUT_TOOLS = new Set(["bash", "shell", "edit", "write"]);
 
 /**
  * One `(gate name, tool)` pair this dispatcher cannot build stdin for —
@@ -287,9 +339,10 @@ export interface UnsupportedGateWire {
  * WHY THIS EXISTS
  * -----------------
  * `deriveGatesFromSettings` derives gates for every `PreToolUse` matcher
- * `.claude/settings.json` wires, including `Read|Glob|Grep` (no hook is
- * wired to those matchers today). `buildToolInput`,
- * by contrast, only reconstructs stdin for `bash`/`edit`/`write` — Hakim's
+ * `.claude/settings.json` wires, including `Read|Glob|Grep` (today, exactly
+ * one hook: `suggest-mcp-search.sh`, an advisory-only hook that never exits
+ * 2 for those tool types — see its own header comment). `buildToolInput`,
+ * by contrast, only reconstructs stdin for `bash`/`shell`/`edit`/`write` — Hakim's
  * #839 finding (ported to this adapter as #840 C2) is that a FUTURE
  * blocking gate wired to `Read`/`Glob`/`Grep` would be silently skipped at
  * every matching tool call, with nothing surfaced anywhere.

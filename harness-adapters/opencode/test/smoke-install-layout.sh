@@ -30,15 +30,21 @@
 #      assertion for opencode specifically: if index.ts leaked even one
 #      more named export, opencode's real loader would try to invoke it —
 #      exactly the mechanism that crashed the server in #844.
-#   3. Calls that default export the way opencode calls a plugin factory
-#      (`await plugin({directory, worktree, ...})`) against a minimal
-#      fixture ops root, and asserts it resolves to a `Hooks` object with a
-#      working `"tool.execute.before"` function, without throwing.
+#   3. Calls that default export the way each opencode generation calls a
+#      plugin (`server({directory, worktree})` for 1.18.29+,
+#      `setup({location, tool, ...})` for 2.x) against a minimal fixture
+#      ops root, and asserts both resolve without throwing — the V1 call to
+#      a `Hooks` object with a working `"tool.execute.before"` function,
+#      the V2 call to a registered `"execute.before"` hook.
 #
 # This does NOT re-verify a live, model-driven opencode session (that gap is
 # already documented in docs/opencode-adapter.md's "honest breakdown" table
 # and is unrelated to install layout) — it verifies the install layout
-# itself never reproduces the #844 crash again.
+# itself never reproduces the #844 crash again, AND that the default
+# export satisfies the V2 loader's object-with-id-and-setup contract (the
+# exact shape whose absence produced `PluginModule.LoadError: Plugin must
+# export a default definition with an id and an effect or setup function`
+# in real 2.x sessions).
 #
 # RUN
 # ---
@@ -98,12 +104,33 @@ const mod = await import(pathToFileURL(entryPath).href);
 
 const keys = Object.keys(mod).sort();
 console.log("EXPORT_KEYS:" + JSON.stringify(keys));
-console.log("DEFAULT_IS_FUNCTION:" + (typeof mod.default === "function"));
+console.log("DEFAULT_IS_OBJECT:" + (typeof mod.default === "object" && mod.default !== null));
+console.log("DEFAULT_ID:" + mod.default?.id);
+console.log("HAS_SETUP_FUNCTION:" + (typeof mod.default?.setup === "function"));
+console.log("HAS_SERVER_FUNCTION:" + (typeof mod.default?.server === "function"));
 
-// Call it the way opencode calls a plugin factory: once, with PluginInput.
-const hooks = await mod.default({ directory: opsRoot, worktree: opsRoot });
+// V1 path: opencode 1.18.29+ calls server({directory, worktree}) and uses
+// the returned Hooks object's tool.execute.before.
+const hooks = await mod.default.server({ directory: opsRoot, worktree: opsRoot });
 console.log("HOOKS_KEYS:" + JSON.stringify(Object.keys(hooks).sort()));
 console.log("HAS_TOOL_EXECUTE_BEFORE:" + (typeof hooks["tool.execute.before"] === "function"));
+
+// V2 path: opencode 2.x calls setup({location, tool, ...}); setup registers
+// ctx.tool.hook("execute.before", handler). Drive the registered handler
+// with a 2.x-shaped event against the empty-gate fixture (must resolve).
+let registered = null;
+const stubCtx = {
+  location: { directory: opsRoot, project: { id: "fixture", directory: opsRoot, canonical: opsRoot } },
+  tool: {
+    hook: async (name, handler) => {
+      registered = { name, handler };
+    },
+  },
+};
+await mod.default.setup(stubCtx);
+console.log("V2_REGISTERED_HOOK:" + (registered ? registered.name : "none"));
+await registered.handler({ tool: "shell", input: { command: "echo hello-from-fixture" } });
+console.log("V2_HANDLER_RESOLVED:true");
 RUNNER_EOF
 
 echo ""
@@ -122,18 +149,38 @@ if ! echo "$OUTPUT" | grep -q '^EXPORT_KEYS:\["default"\]$'; then
   echo "FAIL: expected apexyard/index.ts's module namespace to be exactly [\"default\"] — opencode's real loader invokes EVERY exported function as a candidate plugin, so a leaked named export here is exactly the #844 crash mechanism" >&2
   FAIL=1
 fi
-if ! echo "$OUTPUT" | grep -q '^DEFAULT_IS_FUNCTION:true$'; then
-  echo "FAIL: expected the default export to be a function" >&2
+if ! echo "$OUTPUT" | grep -q '^DEFAULT_IS_OBJECT:true$'; then
+  echo "FAIL: expected the default export to be an object (V2 requires a default definition with an id and setup/effect — a bare function is the V1 shape V2 rejects)" >&2
+  FAIL=1
+fi
+if ! echo "$OUTPUT" | grep -q '^DEFAULT_ID:apexyard$'; then
+  echo "FAIL: expected the default export's id to be \"apexyard\"" >&2
+  FAIL=1
+fi
+if ! echo "$OUTPUT" | grep -q '^HAS_SETUP_FUNCTION:true$'; then
+  echo "FAIL: expected the default export to expose a setup function (the V2 entrypoint)" >&2
+  FAIL=1
+fi
+if ! echo "$OUTPUT" | grep -q '^HAS_SERVER_FUNCTION:true$'; then
+  echo "FAIL: expected the default export to expose a server function (the V1.18.29+ entrypoint)" >&2
   FAIL=1
 fi
 if ! echo "$OUTPUT" | grep -q '^HAS_TOOL_EXECUTE_BEFORE:true$'; then
-  echo "FAIL: expected calling the default export to resolve to a Hooks object with a working tool.execute.before handler" >&2
+  echo "FAIL: expected calling server() to resolve to a Hooks object with a working tool.execute.before handler" >&2
+  FAIL=1
+fi
+if ! echo "$OUTPUT" | grep -q '^V2_REGISTERED_HOOK:execute.before$'; then
+  echo "FAIL: expected setup() to register an execute.before hook via ctx.tool.hook" >&2
+  FAIL=1
+fi
+if ! echo "$OUTPUT" | grep -q '^V2_HANDLER_RESOLVED:true$'; then
+  echo "FAIL: expected the V2-registered execute.before handler to resolve for a 2.x-shaped shell event" >&2
   FAIL=1
 fi
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
-  echo "PASS: the real, shipped install layout (bin/install-opencode-adapter.sh's output) loads cleanly — no top-level helper files in the discovery dir, and apexyard/index.ts exports only a working default plugin factory."
+  echo "PASS: the real, shipped install layout (bin/install-opencode-adapter.sh's output) loads cleanly — no top-level helper files in the discovery dir, apexyard/index.ts exports only a working dual V1+V2 default plugin entrypoint."
   exit 0
 fi
 exit 1
