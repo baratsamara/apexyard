@@ -39,6 +39,14 @@ onboarding.yaml
 workspace/*
 !workspace/README.md
 
+# Per-project ApexYard docs stay on this machine only. The ops fork is
+# public, and the staged leak gate blocks registered private identifiers
+# (names, repo slugs, workspace paths) in committed files. The registry
+# (apexyard.projects.yaml) is the exempt source of truth and stays tracked.
+# This ignores every per-project subdirectory; projects/README.md stays tracked.
+projects/*/
+!projects/README.md
+
 # Adopter-specific agent routing (single-fork mode; split-portfolio mode
 # keeps this in the private repo). See docs/multi-project.md § "Centralised
 # agent routing" and docs/agdr/AgDR-0050-agent-runtime-overhaul.md.

@@ -8,7 +8,7 @@ projects:
     repo: baratsamara/alfdocument
     workspace: workspace/alfdocument
     docs: projects/alfdocument
-    status: handover
+    status: active
     tier: P1
     roles:
       - tech-lead
